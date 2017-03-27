@@ -80,8 +80,8 @@ if __name__ == '__main__':
         '-q',
         help='quiet mode, only print changes',
         action='store_true')
+    args = parser.parse_args()
     if not cmd_exists('rclone'):
         print("Could not find rclone, make sure it's in the path")
         exit(1)
-    args = parser.parse_args()
     main(fix_path(args.remote), fix_path(args.local), args.q)
