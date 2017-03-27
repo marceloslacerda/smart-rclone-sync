@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+import re, subprocess, os.path, argparse
+
+RCLONE="rclone"
+
+def run_process(command_args):
+    try:
+        return subprocess.check_output(
+            command_args,
+            stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as err:
+        output = err.output.decode('utf-8')
+        return output.split('\n')
+
+def send(file_, to, from_):
+    run_process([
+        RCLONE,
+        'copy',
+        from_ + file_,
+        to + os.path.dirname(file_)
+    ])
+    print('Sending file {} from {} to {}'.format(file_, from_, to))
+
+
+def main(remote, local, quiet):
+    differences=run_process([RCLONE, 'check', '-q', remote, local])
+    differences = (i.strip() for i in differences if i.strip() != '')
+    notInRemote = set()
+    notInLocal = set()
+    changed = set()
+
+    for i in differences:
+        try:
+            noTimestamp = i.split(' ', 2)[2]
+        except IndexError:
+            print('Error parsing line: ' + i)
+        (file_name, type_string) = noTimestamp.split(':')
+        if type_string == ' Sizes differ':
+            changed.add(file_name)
+        elif 'Local file system at' in type_string:
+            notInLocal.add(file_name)
+        elif 'File not in' in type_string:
+            notInRemote.add(file_name)
+
+    if not quiet:
+        print('Finished parsing check')
+        
+    for i in notInRemote:
+        send(file_=i, to=remote, from_=local)
+    if (not quiet) or len(notInRemote) > 0:
+        print('{} files uploaded to remote'.format(len(notInRemote)))
+
+    for i in notInLocal:
+        send(file_=i, to=local, from_=remote)
+    if (not quiet) or len(notInLocal) > 0:
+        print('{} files downloaded from remote'.format(len(notInLocal)))
+
+    if len(changed) > 0:
+        print('The following files could not be synced')
+    for i in changed:
+        print(i)
+
+def fix_path(path):
+    return path + '/' if path[-1] != '/' else path
+
+def cmd_exists(cmd):#requires python 3.3
+    return subprocess.call(["which", cmd], stdout=subprocess.DEVNULL) == 0
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Smarter synchronization using rclone')
+    parser.add_argument(
+        'local',
+        metavar='LOCAL',
+        help='the path to the local directory. eg: /home/user/documents')
+    parser.add_argument(
+        'remote',
+        metavar='REMOTE',
+        help='the path to the remote directory. eg: remote:/documents/')
+    parser.add_argument(
+        '-q',
+        help='quiet mode, only print changes',
+        action='store_true')
+    if not cmd_exists('rclone'):
+        print("Could not find rclone, make sure it's in the path")
+        exit(1)
+    args = parser.parse_args()
+    main(fix_path(args.remote), fix_path(args.local), args.q)
